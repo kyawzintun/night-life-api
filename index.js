@@ -144,60 +144,68 @@ app.get('/search-bar', (req, res) => {
   let authUrl = yelConfig.authUrl+`client_id=${cID}&&client_secret=${cSec}`;
   let url = yelConfig.searchUrl;
   let options = {
-    url: url +"term=restaurants&&location="+req.query.keyword,
-    method: 'GET',
-    headers: {
-      "Authorization": `Bearer ${yelConfig.access_token}`
-    }
+    url: authUrl + "client_id=" + yelConfig.clientID + "&&client_secret=" + yelConfig.clientSecret,
+    method: 'POST',
   }
-  // let options2 = {
-  //   url: authUrl + "client_id=" + yelConfig.clientID + "&&client_secret=" + yelConfig.clientSecret,
-  //   method: 'POST',
-  // }
-  // request(options2, (err, response, body) => {
-  //   console.log(body, response);
-  // });
   request(options, (err, response, body) => {
     if(!err) {
-      let resBody = JSON.parse(body);
-      let count = 0;
-      let lists = [];
-      GoingList
-      .find()
-      .select({ numberOfGoers: 1, id: 2 })
-      .then(docs => {
-        resBody.businesses.forEach((rest, index) => {
-          docs.forEach(doc => {
-            if (rest.id !== doc.id) {
-              if(!rest.hasOwnProperty("numberOfGoers")){
-                rest["numberOfGoers"] = 0;
-              }
-            } else {
-              resBody.businesses[index]["numberOfGoers"] = doc.numberOfGoers;
-            }
-          });
-          count++;
-          if (count === resBody.businesses.length) {
-            res.status(200).json(resBody);
+      let obj = JSON.parse(body);
+      let options2 = {
+        url: url + "term=restaurants&&location=" + req.query.keyword,
+        method: 'GET',
+        headers: {
+          "Authorization": "Bearer " + obj.access_token
+        }
+      }
+      request(options2, (err, response, body) => {
+        if (!err) {
+          let resBody = JSON.parse(body);
+          let count = 0;
+          let lists = [];
+          if (resBody.hasOwnProperty("error")) {
+            res.status(404).send(resBody.error.code);
+          }else {
+            GoingList
+              .find()
+              .select({ numberOfGoers: 1, id: 2 })
+              .then(docs => {
+                resBody.businesses.forEach((rest, index) => {
+                  docs.forEach(doc => {
+                    if (rest.id !== doc.id) {
+                      if (!rest.hasOwnProperty("numberOfGoers")) {
+                        rest["numberOfGoers"] = 0;
+                      }
+                    } else {
+                      resBody.businesses[index]["numberOfGoers"] = doc.numberOfGoers;
+                    }
+                  });
+                  count++;
+                  if (count === resBody.businesses.length) {
+                    res.status(200).json(resBody);
+                  }
+                });
+              })
+              .catch(err => {
+                console.log('fuck fuck ', err);
+                res.status(500).send('Internal Server Error');
+              });
           }
-        });
+        } else {
+          res.status(500).send('Internal Server Error!!!');
+        }
       })
-      .catch(err => {
-        res.status(500).send('Internal Server Error');
-      });
     }else {
-      console.log(err, 'auth err');
-      res.status(500).send('Yel API Auth Error');
+      res.status(500).send('Yel API Auth Error!!!');
     }
-  })  
+  });  
 });
 
 app.post('/add-going-list', isAuthenticated, (req, res) => {
-  let userId = req.headers.token;
+  let decode = parseJwt(req.headers.token);
   GoingList.find({id:req.body.id}, function (err, gointlist) {
     if (!gointlist.length) {
       let userObj = {
-        id: userId,
+        id: decode.id,
         date: new Date().toISOString()
       }
       req.body.numberOfGoers = 1;
@@ -217,7 +225,7 @@ app.post('/add-going-list', isAuthenticated, (req, res) => {
       let list = gointlist[0];
       let addedGoingList = 0;
       let msg = '';
-      let index = list.userId.map((x) => { return x.id; }).indexOf(userId)
+      let index = list.userId.map((x) => { return x.id; }).indexOf(decode.id)
       if(index !== -1) {
         addedGoingList = list.numberOfGoers - 1;
         list.userId.splice(index, 1);
@@ -225,7 +233,7 @@ app.post('/add-going-list', isAuthenticated, (req, res) => {
       }else {
         msg = "Successfully added to going list.";
         addedGoingList = list.numberOfGoers + 1
-        list.userId.push({id: userId, date: new Date().toISOString()})
+        list.userId.push({id: decode.id, date: new Date().toISOString()})
       }
       GoingList.update(
         { _id: list._id }, 
